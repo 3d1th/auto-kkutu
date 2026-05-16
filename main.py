@@ -132,6 +132,7 @@ class KkutuWatcher(QWidget):
 
     killer_priority: bool = True
     long_priority: bool = False
+    typing_battle_mode: bool = False
 
     def __init__(self, view: QWebEngineView, parent=None):
         super().__init__(parent)
@@ -224,6 +225,13 @@ class WordbookPanel(QWidget):
         mode_row.addWidget(self.long_toggle)
         layout.addLayout(mode_row)
 
+        battle_row = QHBoxLayout()
+        self.battle_toggle = QCheckBox("타자대결 모드 (제시어 맨 앞 단어 자동 입력)")
+        self.battle_toggle.setChecked(False)
+        self.battle_toggle.toggled.connect(self._on_mode_toggled)
+        battle_row.addWidget(self.battle_toggle)
+        layout.addLayout(battle_row)
+
         self.detected_label = QLabel("감지된 제시어: —")
         self.detected_label.setStyleSheet(
             "font-size: 14px; font-weight: bold; color: #225; padding: 4px; background: #eef;"
@@ -265,6 +273,7 @@ class WordbookPanel(QWidget):
 
         self._all_words: list[str] = []
         self._last_chars: list[str] = []
+        self._last_battle_word: str | None = None
         self._pending_localstorage: dict | None = None
         self.web_view.loadFinished.connect(self._maybe_apply_localstorage)
         self._load_wordlist()
@@ -331,10 +340,18 @@ class WordbookPanel(QWidget):
     def _on_mode_toggled(self, _on: bool):
         KkutuWatcher.killer_priority = self.killer_toggle.isChecked()
         KkutuWatcher.long_priority = self.long_toggle.isChecked()
+        KkutuWatcher.typing_battle_mode = self.battle_toggle.isChecked()
+        if not self.battle_toggle.isChecked():
+            self._last_battle_word = None
         self._rerun_lookup()
 
     # ---- 자동 감지 → 조회 ----
     def _on_detected(self, raw: str):
+        # 타자대결 모드: 공백으로 자른 첫 단어를 자동 입력
+        if self.battle_toggle.isChecked():
+            self._handle_typing_battle(raw)
+            return
+
         if not is_valid_starter(raw):
             self.detected_label.setText(
                 f"감지: '{raw}' — 시작단어 형식 아님 (이전 결과 유지)"
@@ -358,6 +375,38 @@ class WordbookPanel(QWidget):
         else:
             self.detected_label.setText(f"감지된 제시어: '{raw}'")
         self._show_results(chars)
+
+    BATTLE_MIN_WORDS = 4  # 이만큼 이상 단어가 표시될 때만 타자대결로 인정
+
+    def _handle_typing_battle(self, raw: str):
+        text = (raw or "").strip()
+        if not text:
+            return
+        words = text.split()
+        if len(words) < self.BATTLE_MIN_WORDS:
+            self.detected_label.setText(
+                f"타자대결 대기: '{text}' ({len(words)}단어 < {self.BATTLE_MIN_WORDS})"
+            )
+            self.detected_label.setStyleSheet(
+                "font-size: 14px; font-weight: bold; color: #888; padding: 4px; background: #f4f4f4;"
+            )
+            # 단어 수가 부족하면 last_battle_word 초기화해서 나중에 다시 등장하면 새 단어로 인식
+            self._last_battle_word = None
+            return
+        first = words[0]
+        if not first or first == self._last_battle_word:
+            return
+        self._last_battle_word = first
+        self.detected_label.setText(
+            f"타자대결: '{first}' 자동 입력 (전체 {len(words)}단어)"
+        )
+        self.detected_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #c00; padding: 4px; background: #fee;"
+        )
+        js = TYPE_JS % _json.dumps(first, ensure_ascii=False)
+        self.web_view.page().runJavaScript(
+            js, lambda r: self._after_typing(first, r)
+        )
 
     def _rerun_lookup(self):
         if self._last_chars:
