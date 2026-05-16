@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# 빌드 산출물
+build/
+dist/
+*.build/
+*.dist/
+*.onefile-build/
+main.dist/
+main.build/
+main.bin
+*.exe
+*.spec
+
+# 로그인 세션·캐시 (민감)
+account/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
